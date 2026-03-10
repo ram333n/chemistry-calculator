@@ -26,7 +26,7 @@ Spring Boot 4.0.3 REST API (Java 21, Maven). Single endpoint: `GET /api/v1/compo
 
 **Key design decisions:**
 
-- `FormulaParser` is a stateful recursive descent parser (`String formula` + `int pos` cursor) with a `synchronized parse()` entry point to be safe as a singleton Spring bean. Grammar supports arbitrary parenthesis nesting: `Fe2(SO4)3`, `Ca3(PO4)2`, etc. Returns `LinkedHashMap<Element, Integer>` to preserve element order from the formula.
+- `FormulaParser` is a stateless Spring bean. Each `parse()` call creates a private inner `Parse` instance that holds the `String formula` + `int pos` cursor, so no synchronization is needed. Grammar supports arbitrary parenthesis nesting: `Fe2(SO4)3`, `Ca3(PO4)2`, etc. Returns `LinkedHashMap<Element, Integer>` to preserve element order from the formula.
 - `Element` enum holds all 118 elements with their `double atomicMass`. Lookup is via `Element.valueOf(symbol)` — unknown symbols throw `InvalidFormulaException`.
 - Rounding to 4 decimal places happens only in `CompoundAnalysisService` (using `BigDecimal.HALF_UP`), never mid-calculation.
 - `GlobalExceptionHandler` (`@RestControllerAdvice`) maps `InvalidFormulaException` and `MissingServletRequestParameterException` → 400, everything else → 500. Error body shape: `{ status, message, path }`.
