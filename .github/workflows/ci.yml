@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   build-test-coverage:
@@ -44,3 +45,89 @@ jobs:
         with:
           name: pit-mutation-report
           path: target/pit-reports/
+
+      - name: Generate coverage summary
+        run: |
+          python3 << 'EOF'
+          import xml.etree.ElementTree as ET
+          import re, os
+
+          def pct(c):
+              missed  = int(c.get('missed',  '0'))
+              covered = int(c.get('covered', '0'))
+              total   = missed + covered
+              return f"{(covered / total) * 100:.1f}" if total > 0 else "0.0"
+
+          # JaCoCo — strip DOCTYPE so expat does not attempt to load report.dtd
+          with open('target/site/jacoco/jacoco.xml', 'r') as f:
+              content = f.read()
+          content = re.sub(r'<!DOCTYPE[^>]+>', '', content)
+          report_root = ET.fromstring(content)
+          counters = {c.attrib['type']: c.attrib for c in report_root.findall('counter')}
+
+          inst_pct   = pct(counters.get('INSTRUCTION', {}))
+          branch_pct = pct(counters.get('BRANCH',      {}))
+          line_pct   = pct(counters.get('LINE',        {}))
+          method_pct = pct(counters.get('METHOD',      {}))
+
+          # PIT
+          pit_root  = ET.parse('target/pit-reports/mutations.xml').getroot()
+          mutations = pit_root.findall('mutation')
+          total     = len(mutations)
+          killed    = sum(1 for m in mutations if m.attrib.get('status') == 'KILLED')
+          mut_score = f"{(killed / total) * 100:.1f}" if total > 0 else "0.0"
+
+          report = (
+              "## \U0001f4ca Coverage Report\n\n"
+              "### \U0001f9ea JaCoCo \u2014 Code Coverage\n"
+              "| Metric | Coverage |\n"
+              "|--------|:--------:|\n"
+              f"| Instructions | {inst_pct}% |\n"
+              f"| Branches     | {branch_pct}% |\n"
+              f"| Lines        | {line_pct}% |\n"
+              f"| Methods      | {method_pct}% |\n\n"
+              "### \U0001f9ec PIT \u2014 Mutation Coverage\n"
+              "| Metric | Value |\n"
+              "|--------|:-----:|\n"
+              f"| Mutation Score   | {mut_score}% |\n"
+              f"| Mutations Killed | {killed} / {total} |\n"
+          )
+
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'w') as f:
+              f.write(report)
+          with open('/tmp/coverage-report.md', 'w') as f:
+              f.write(report)
+          EOF
+
+      - name: Post coverage comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs    = require('fs');
+            const report = fs.readFileSync('/tmp/coverage-report.md', 'utf8');
+            const marker = '<!-- coverage-report -->';
+            const body   = `${marker}\n${report}`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner:      context.repo.owner,
+                repo:       context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner:        context.repo.owner,
+                repo:         context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
