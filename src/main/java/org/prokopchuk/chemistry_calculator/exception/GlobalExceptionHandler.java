@@ -18,6 +18,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(errorBody(400, ex.getMessage(), request.getRequestURI()));
     }
 
+    @ExceptionHandler(InvalidEquationException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidEquation(
+            InvalidEquationException ex, HttpServletRequest request) {
+        return ResponseEntity.badRequest().body(errorBody(400, ex.getMessage(), request.getRequestURI()));
+    }
+
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public ResponseEntity<Map<String, Object>> handleMissingParam(
             MissingServletRequestParameterException ex, HttpServletRequest request) {
